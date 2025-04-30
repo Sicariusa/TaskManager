@@ -14,27 +14,26 @@ const fs = require('fs');
 // Get all tasks for a user
 exports.getAllTasks = async (req, res) => {
   try {
-    const userId = req.query.userId;
-    
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
-    }
-
-    const taskUsers = await TaskUser.findAll({
-      where: { userId },
-      include: [
-        { model: Task }
-      ],
-      order: [[Task, 'createdAt', 'DESC']]
+    const tasks = await Task.findAll({
+      include: [{
+        model: TaskUser,
+        attributes: ['role', 'status']
+      }],
+      order: [['createdAt', 'DESC']]
     });
 
-    const tasks = taskUsers.map(tu => ({
-      ...tu.Task.toJSON(),
-      userRole: tu.role,
-      userStatus: tu.status
-    }));
+    const formattedTasks = tasks.map(task => {
+      const taskJson = task.toJSON();
+      // const taskUser = taskJson.TaskUsers && taskJson.TaskUsers[0];
+      return {
+        ...taskJson,
+        // userRole: taskUser ? taskUser.role : null,
+        // userStatus: taskUser ? taskUser.status : null,
+        TaskUsers: undefined // Remove the nested TaskUsers array
+      };
+    });
 
-    res.status(200).json(tasks);
+    res.status(200).json(formattedTasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ message: 'Failed to fetch tasks', error: error.message });
@@ -356,5 +355,43 @@ exports.sendNotification = async (req, res) => {
   } catch (error) {
     console.error('Error sending notification:', error);
     res.status(500).json({ message: 'Failed to send notification', error: error.message });
+  }
+};
+
+// Get tasks by user ID
+exports.getTasksByUserId = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const tasks = await Task.findAll({
+      include: [
+        {
+          model: TaskUser,
+          where: { userId },
+          attributes: ['role', 'status'],
+          required: true
+        },
+        {
+          model: Attachment
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    const formattedTasks = tasks.map(task => {
+      const taskJson = task.toJSON();
+      const taskUser = taskJson.TaskUsers[0]; // We know this exists due to inner join
+      return {
+        ...taskJson,
+        userRole: taskUser.role,
+        userStatus: taskUser.status,
+        TaskUsers: undefined // Remove the nested TaskUsers array
+      };
+    });
+
+    res.status(200).json(formattedTasks);
+  } catch (error) {
+    console.error('Error fetching tasks for user:', error);
+    res.status(500).json({ message: 'Failed to fetch tasks for user', error: error.message });
   }
 };
