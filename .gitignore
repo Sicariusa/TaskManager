@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Directory for uploaded files (except .gitkeep)
+uploads/*
+!uploads/.gitkeep
+
+# Coverage directory used by tools like istanbul
+coverage
+
+# nyc test coverage
+.nyc_output
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variable files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Mac files
+.DS_Store
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
