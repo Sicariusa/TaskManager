@@ -3,18 +3,17 @@ const sequelize = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 const User = sequelize.define('User', {
-  id: {
+  userId: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true
   },
-  username: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true
+  name: {
+    type: DataTypes.STRING(100),
+    allowNull: true
   },
   email: {
-    type: DataTypes.STRING,
+    type: DataTypes.STRING(100),
     allowNull: false,
     unique: true,
     validate: {
@@ -22,28 +21,13 @@ const User = sequelize.define('User', {
     }
   },
   password: {
-    type: DataTypes.STRING,
+    type: DataTypes.STRING(100),
     allowNull: false
   },
-  firstName: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  lastName: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  role: {
-    type: DataTypes.ENUM('user', 'admin'),
-    defaultValue: 'user'
-  },
-  status: {
-    type: DataTypes.ENUM('active', 'inactive'),
-    defaultValue: 'active'
-  },
-  lastLogin: {
-    type: DataTypes.DATE,
-    allowNull: true
+  username: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    unique: true
   },
   createdAt: {
     type: DataTypes.DATE,

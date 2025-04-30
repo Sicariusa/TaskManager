@@ -46,7 +46,7 @@ const Attachment = sequelize.define('Attachment', {
   }
 });
 
-// Define association
+// Define association with Task model (not DynamoTask)
 Task.hasMany(Attachment, { foreignKey: 'taskId', onDelete: 'CASCADE' });
 Attachment.belongsTo(Task, { foreignKey: 'taskId' });
 

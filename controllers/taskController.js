@@ -1,44 +1,39 @@
-const Task = require('../models/Task');
 const TaskUser = require('../models/TaskUser');
 const Attachment = require('../models/Attachment');
 const DynamoTask = require('../models/DynamoTask');
+const User = require('../models/User');
 const notificationService = require('../services/notificationService');
-const path = require('path');
+const Task = require('../models/Task');
+const sequelize = require('../config/database');
+
 const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
-const multer = require('multer');
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueFilename = `${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueFilename);
-  }
-});
 
-const upload = multer({ 
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-});
+
 
 // Get all tasks for a user
 exports.getAllTasks = async (req, res) => {
   try {
-    const userId = req.query.userId || 1;
+    const userId = req.query.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
     const taskUsers = await TaskUser.findAll({
       where: { userId },
-      include: [{ model: Task }],
+      include: [
+        { model: Task }
+      ],
       order: [[Task, 'createdAt', 'DESC']]
     });
 
-    const tasks = taskUsers.map(tu => tu.Task);
+    const tasks = taskUsers.map(tu => ({
+      ...tu.Task.toJSON(),
+      userRole: tu.role,
+      userStatus: tu.status
+    }));
+
     res.status(200).json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
@@ -53,7 +48,13 @@ exports.getTaskById = async (req, res) => {
     const task = await Task.findByPk(taskId, {
       include: [
         { model: Attachment },
-        { model: TaskUser }
+        { 
+          model: TaskUser,
+          include: [{
+            model: User,
+            attributes: ['userId', 'username', 'name', 'email']
+          }]
+        }
       ]
     });
     
@@ -77,9 +78,13 @@ exports.getTaskById = async (req, res) => {
 
 // Create a new task
 exports.createTask = async (req, res) => {
+  const t = await sequelize.transaction();
+  let dynamoTask = null;
+
   try {
     const { title, description, status, dueDate, priority, userId, assignees } = req.body;
     
+    // Validate required fields
     if (!title) {
       return res.status(400).json({ message: 'Title is required' });
     }
@@ -87,14 +92,26 @@ exports.createTask = async (req, res) => {
     if (!userId) {
       return res.status(400).json({ message: 'User ID is required' });
     }
-    
-    const task = await Task.create({
+
+    // First, create the task in DynamoDB
+    dynamoTask = await DynamoTask.create({
       title,
       description,
       status: status || 'pending',
+      priority: priority || 'medium',
       dueDate: dueDate || null,
-      priority: priority || 'medium'
+      userId
     });
+    
+    // Then create the task in SQL database with the DynamoDB taskId
+    const task = await Task.create({
+      dynamoTaskId: dynamoTask.taskId,
+      title,
+      description,
+      status: status || 'pending',
+      priority: priority || 'medium',
+      dueDate: dueDate || null
+    }, { transaction: t });
 
     // Create creator relationship
     await TaskUser.create({
@@ -102,7 +119,7 @@ exports.createTask = async (req, res) => {
       userId,
       role: 'creator',
       status: 'active'
-    });
+    }, { transaction: t });
 
     // Create assignee relationships
     if (assignees && Array.isArray(assignees)) {
@@ -112,14 +129,53 @@ exports.createTask = async (req, res) => {
           userId: assigneeId,
           role: 'assignee',
           status: 'pending'
-        })
+        }, { transaction: t })
       ));
     }
+
+    // Commit transaction
+    await t.commit();
+
+    // Fetch the complete task with relationships
+    const createdTask = await Task.findByPk(task.id, {
+      include: [
+        { 
+          model: TaskUser,
+          include: [{
+            model: User,
+            attributes: ['userId', 'username', 'name', 'email']
+          }]
+        }
+      ]
+    });
     
-    res.status(201).json(task);
+    // Include DynamoDB data in response
+    const taskResponse = {
+      ...createdTask.toJSON(),
+      dynamoDetails: dynamoTask
+    };
+    
+    res.status(201).json(taskResponse);
   } catch (error) {
+    // Only rollback if the transaction hasn't been committed
+    if (!t.finished) {
+      await t.rollback();
+    }
+    
+    // Delete DynamoDB record if it was created
+    if (dynamoTask && dynamoTask.taskId) {
+      try {
+        await DynamoTask.delete(dynamoTask.taskId);
+      } catch (deleteError) {
+        console.error('Error deleting DynamoDB record:', deleteError);
+      }
+    }
+    
     console.error('Error creating task:', error);
-    res.status(500).json({ message: 'Failed to create task', error: error.message });
+    res.status(500).json({ 
+      message: 'Failed to create task', 
+      error: error.message 
+    });
   }
 };
 
@@ -166,8 +222,21 @@ exports.updateTask = async (req, res) => {
 
     // Sync with DynamoDB
     await task.syncWithDynamo();
+
+    // Fetch updated task with relationships
+    const updatedTask = await Task.findByPk(taskId, {
+      include: [
+        { 
+          model: TaskUser,
+          include: [{
+            model: User,
+            attributes: ['userId', 'username', 'name', 'email']
+          }]
+        }
+      ]
+    });
     
-    res.status(200).json(task);
+    res.status(200).json(updatedTask);
   } catch (error) {
     console.error('Error updating task:', error);
     res.status(500).json({ message: 'Failed to update task', error: error.message });

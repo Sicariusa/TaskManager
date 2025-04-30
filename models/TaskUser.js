@@ -1,29 +1,27 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
-const Task = require('./Task');
+const User = require('./User');
 
 const TaskUser = sequelize.define('TaskUser', {
   taskId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: Task,
-      key: 'id'
-    }
+    allowNull: false
   },
   userId: {
     type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'userId'
+    }
   },
   role: {
     type: DataTypes.STRING(50),
-    allowNull: false,
-    defaultValue: 'assignee'
+    allowNull: false
   },
   status: {
     type: DataTypes.STRING(50),
-    allowNull: false,
-    defaultValue: 'pending'
+    allowNull: false
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -36,7 +34,6 @@ const TaskUser = sequelize.define('TaskUser', {
 });
 
 // Define associations
-Task.hasMany(TaskUser, { foreignKey: 'taskId', onDelete: 'CASCADE' });
-TaskUser.belongsTo(Task, { foreignKey: 'taskId' });
+TaskUser.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = TaskUser;

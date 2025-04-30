@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 // JWT secret key - should be in environment variables
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -7,7 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 // Register new user
 exports.register = async (req, res) => {
   try {
-    const { username, email, password, firstName, lastName } = req.body;
+    const { username, email, password, name } = req.body;
 
     // Validate required fields
     if (!username || !email || !password) {
@@ -17,7 +18,7 @@ exports.register = async (req, res) => {
     // Check if user already exists
     const existingUser = await User.findOne({
       where: {
-        [User.sequelize.Op.or]: [{ username }, { email }]
+        [Op.or]: [{ username }, { email }]
       }
     });
 
@@ -30,23 +31,20 @@ exports.register = async (req, res) => {
       username,
       email,
       password,
-      firstName,
-      lastName
+      name
     });
 
-    // Generate JWT token
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    // // Generate JWT token
+    // const token = jwt.sign({ userId: user.userId }, JWT_SECRET, { expiresIn: '24h' });
 
     res.status(201).json({
       message: 'User registered successfully',
-      token,
+      // token,
       user: {
-        id: user.id,
+        id: user.userId,
         username: user.username,
         email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role
+        name: user.name
       }
     });
   } catch (error) {
@@ -79,22 +77,17 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Update last login
-    await user.update({ lastLogin: new Date() });
-
     // Generate JWT token
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, { expiresIn: '24h' });
 
     res.status(200).json({
       message: 'Login successful',
       token,
       user: {
-        id: user.id,
+        id: user.userId,
         username: user.username,
         email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role
+        name: user.name
       }
     });
   } catch (error) {
@@ -126,7 +119,7 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.user.id; // Set by auth middleware
-    const { firstName, lastName, email, password } = req.body;
+    const { name, email, password } = req.body;
 
     const user = await User.findByPk(userId);
 
@@ -136,8 +129,7 @@ exports.updateProfile = async (req, res) => {
 
     // Update user fields
     await user.update({
-      firstName: firstName || user.firstName,
-      lastName: lastName || user.lastName,
+      name: name || user.name,
       email: email || user.email,
       password: password || user.password
     });

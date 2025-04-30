@@ -26,10 +26,10 @@ exports.authenticateToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid token' });
     }
 
-    // Check if user is active
-    if (user.status !== 'active') {
-      return res.status(403).json({ message: 'Account is inactive' });
-    }
+    // // Check if user is active
+    // if (user.status !== 'active') {
+    //   return res.status(403).json({ message: 'Account is inactive' });
+    // }
 
     // Attach user to request object
     req.user = user;
