@@ -1,4 +1,5 @@
-const awsServerlessExpress = require('aws-serverless-express');
+const express = require('express');
+const serverlessExpress = require('@vendia/serverless-express');
 const app = require('./app');
 
 // Remove the direct server start since Lambda will handle this
@@ -11,11 +12,18 @@ if (app.listen) {
   app._listen = listen;
 }
 
-const server = awsServerlessExpress.createServer(app);
+// Create serverless handler
+const handler = serverlessExpress({
+  app,
+  respondWithErrors: true, // This helps with debugging
+  logSettings: {
+    level: 'debug' // Increase logging for troubleshooting
+  }
+});
 
-exports.handler = (event, context) => {
-  // Log the event for debugging (remove in production if sensitive data is present)
+// Export the handler
+exports.handler = async (event, context) => {
+  // Log the event for debugging
   console.log('Event:', JSON.stringify(event));
-  
-  return awsServerlessExpress.proxy(server, event, context);
+  return handler(event, context);
 }; 
