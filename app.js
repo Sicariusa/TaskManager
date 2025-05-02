@@ -30,10 +30,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Something went wrong!', error: err.message });
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+// Only start the server if we're not in Lambda (for local development)
+if (process.env.NODE_ENV !== 'lambda') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
