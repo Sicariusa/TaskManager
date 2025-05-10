@@ -4,11 +4,11 @@ const path = require('path');
 require('dotenv').config();
 
 // Import routes
-const authRoutes = require('./routes/authRoutes');
+const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/taskRoutes');
 
 // Import middleware
-const { authenticateToken } = require('./middleware/authMiddleware');
+const { auth } = require('./middleware/auth');
 
 const app = express();
 
@@ -22,12 +22,12 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/tasks', authenticateToken, taskRoutes); // Protect all task routes
+app.use('/api/tasks', auth, taskRoutes); // Protect all task routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!', error: err.message });
+  res.status(500).json({ error: err.message });
 });
 
 // Only start the server if we're not in Lambda (for local development)
