@@ -114,7 +114,53 @@ exports.loginUser = (username, password) => {
         });
         return reject(err);
       }
-      resolve(data.AuthenticationResult.IdToken);
+      
+      // Debug log the structure of the authentication result
+      console.log('Authentication Result Structure:', {
+        hasIdToken: !!data.AuthenticationResult.IdToken,
+        hasAccessToken: !!data.AuthenticationResult.AccessToken,
+        hasRefreshToken: !!data.AuthenticationResult.RefreshToken,
+        keys: Object.keys(data.AuthenticationResult)
+      });
+      
+      resolve(data.AuthenticationResult);
+    });
+  });
+};
+
+/**
+ * Get User By Username
+ */
+exports.getUserByUsername = (username) => {
+  const params = {
+    UserPoolId: process.env.COGNITO_USER_POOL_ID,
+    Username: username
+  };
+
+  return new Promise((resolve, reject) => {
+    cognitoIdentityServiceProvider.adminGetUser(params, (err, data) => {
+      if (err) {
+        console.error('Get User Error Details:', {
+          name: err.name,
+          message: err.message,
+          code: err.code,
+          stack: err.stack
+        });
+        return reject(err);
+      }
+      
+      // Extract user attributes including sub (UserSub)
+      const userAttributes = {};
+      data.UserAttributes.forEach(attr => {
+        userAttributes[attr.Name] = attr.Value;
+      });
+      
+      // Add the sub as UserSub to maintain compatibility with registration function
+      if (userAttributes.sub) {
+        userAttributes.UserSub = userAttributes.sub;
+      }
+      
+      resolve(userAttributes);
     });
   });
 };
