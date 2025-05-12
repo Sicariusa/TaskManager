@@ -29,7 +29,7 @@ exports.handler = async (event) => {
         const userId = decoded.sub;
         
         console.log("Authenticated user:", userId);
-
+        
         // Parse task from body
         let body;
         try {

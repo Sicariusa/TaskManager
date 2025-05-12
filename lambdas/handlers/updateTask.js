@@ -1,10 +1,12 @@
-const mysql = require("mysql2/promise");
 const AWS = require("aws-sdk");
 const { verifyToken } = require("../verifyToken");
+const { success, error } = require("../response");
 require("dotenv").config();
 
 // Initialize DynamoDB client
 const dynamodb = new AWS.DynamoDB.DocumentClient();
+// Initialize SQS client
+const sqs = new AWS.SQS();
 
 /**
  * Handler for updating tasks from API Gateway or SNS/SQS messages
@@ -21,7 +23,7 @@ exports.handler = async (event) => {
     try {
         // Extract and verify token
         const authHeader = event.headers?.Authorization || event.headers?.authorization;
-        if (!authHeader) return formatError("Unauthorized: No token", 401);
+        if (!authHeader) return error("Unauthorized: No token", 401);
 
         const token = authHeader.replace("Bearer ", "");
         const decoded = await verifyToken(token);
@@ -34,16 +36,15 @@ exports.handler = async (event) => {
         try {
             body = JSON.parse(event.body || "{}");
         } catch (e) {
-            return formatError("Invalid request body", 400);
+            return error("Invalid request body", 400);
         }
         
         // Extract taskId from path parameters or body
         const taskId = event.pathParameters?.taskId || body.taskId;
         if (!taskId) {
-            return formatError("Missing taskId", 400);
+            return error("Missing taskId", 400);
         }
 
-        const timestamp = new Date().toISOString();
         const updateFields = {};
         
         // Check which fields to update
@@ -52,94 +53,30 @@ exports.handler = async (event) => {
         if (body.status !== undefined) updateFields.status = body.status;
         
         if (Object.keys(updateFields).length === 0) {
-            return formatError("No fields to update", 400);
+            return error("No fields to update", 400);
         }
         
-        // Update DynamoDB
-        const updateExpressions = [];
-        const expressionAttributeNames = {};
-        const expressionAttributeValues = {};
+        // Update the task in DynamoDB
+        const result = await updateTaskInDynamoDB(taskId.toString(), updateFields);
         
-        // Build update expression for DynamoDB
-        Object.entries(updateFields).forEach(([key, value]) => {
-            updateExpressions.push(`#${key} = :${key}`);
-            expressionAttributeNames[`#${key}`] = key;
-            expressionAttributeValues[`:${key}`] = value;
+        // Send notification to SQS
+        await sendNotification({
+            taskId,
+            userId,
+            type: 'TASK_UPDATED',
+            message: `Task ${taskId} has been updated`,
+            updatedFields: Object.keys(updateFields),
+            updatedTask: result
         });
         
-        // Add updatedAt timestamp
-        updateExpressions.push('#updatedAt = :updatedAt');
-        expressionAttributeNames['#updatedAt'] = 'updatedAt';
-        expressionAttributeValues[':updatedAt'] = timestamp;
-        
-        // First, get the task to check its structure
-        const getParams = {
-            TableName: process.env.DYNAMO_TASK_TABLE,
-            Key: {
-                taskId: taskId.toString()
-            }
-        };
-        
-        try {
-            // Try to get the item first to determine the correct key structure
-            const existingItem = await dynamodb.get(getParams).promise();
-            console.log("Existing item:", existingItem);
-            
-            if (!existingItem.Item) {
-                return formatError(`Task with ID ${taskId} not found`, 404);
-            }
-            
-            // Determine the correct key structure based on the existing item
-            const keyStructure = {
-                taskId: taskId.toString()
-            };
-            
-            // Table only has taskId as the HASH key, so we don't need userId in the key
-            console.log("Using key structure:", JSON.stringify(keyStructure));
-            
-            // Update DynamoDB
-            const params = {
-                TableName: process.env.DYNAMO_TASK_TABLE,
-                Key: keyStructure,
-                UpdateExpression: 'SET ' + updateExpressions.join(', '),
-                ExpressionAttributeNames: expressionAttributeNames,
-                ExpressionAttributeValues: expressionAttributeValues,
-                ReturnValues: 'ALL_NEW'
-            };
-            
-            const dynamoResult = await dynamodb.update(params).promise();
-            console.log("DynamoDB update result:", dynamoResult);
-        } catch (err) {
-            console.error("Error getting or updating item:", err);
-            return formatError(`Failed to update task: ${err.message}`, 500);
-        }
-        
-        // Update MySQL if status needs to be updated
-        if (updateFields.status) {
-            const conn = await mysql.createConnection({
-                host: process.env.DB_HOST,
-                user: process.env.DB_USER,
-                password: process.env.DB_PASSWORD,
-                database: process.env.DB_NAME,
-            });
-            
-            const [result] = await conn.execute(
-                "UPDATE TaskUser SET status = ?, updatedAt = ? WHERE taskId = ? AND userId = ?",
-                [updateFields.status, timestamp, taskId, userId]
-            );
-            
-            console.log("MySQL update result:", result);
-            await conn.end();
-        }
-        
-        return formatSuccess({
+        return success({
             message: "Task updated successfully",
             taskId: taskId,
             updatedFields: Object.keys(updateFields)
         });
     } catch (err) {
         console.error("Error updating task:", err);
-        return formatError(err.message || "Failed to update task", 500);
+        return error(err.message || "Failed to update task", 500);
     }
 };
 
@@ -185,99 +122,30 @@ async function handleSQSEvent(event) {
                 throw new Error("Missing taskId for update operation");
             }
             
-            const timestamp = new Date().toISOString();
             const updateFields = {};
-            const updateExpressions = [];
-            const expressionAttributeNames = {};
-            const expressionAttributeValues = {};
             
-            // Build update expression for DynamoDB
-            if (taskData.title) {
-                updateExpressions.push('#title = :title');
-                expressionAttributeNames['#title'] = 'title';
-                expressionAttributeValues[':title'] = taskData.title;
-                updateFields.title = taskData.title;
+            // Build update fields
+            if (taskData.title !== undefined) updateFields.title = taskData.title;
+            if (taskData.description !== undefined) updateFields.description = taskData.description;
+            if (taskData.status !== undefined) updateFields.status = taskData.status;
+            
+            if (Object.keys(updateFields).length === 0) {
+                throw new Error("No fields to update");
             }
             
-            if (taskData.description) {
-                updateExpressions.push('#description = :description');
-                expressionAttributeNames['#description'] = 'description';
-                expressionAttributeValues[':description'] = taskData.description;
-                updateFields.description = taskData.description;
-            }
+            // Update the task in DynamoDB
+            const updatedTask = await updateTaskInDynamoDB(taskData.taskId.toString(), updateFields);
             
-            if (taskData.status) {
-                updateExpressions.push('#status = :status');
-                expressionAttributeNames['#status'] = 'status';
-                expressionAttributeValues[':status'] = taskData.status;
-                updateFields.status = taskData.status;
-            }
-            
-            // Add updatedAt timestamp
-            updateExpressions.push('#updatedAt = :updatedAt');
-            expressionAttributeNames['#updatedAt'] = 'updatedAt';
-            expressionAttributeValues[':updatedAt'] = timestamp;
-            
-            // Update DynamoDB if there are fields to update
-            if (updateExpressions.length > 0) {
-                // First, get the task to check its structure
-                const getParams = {
-                    TableName: process.env.DYNAMO_TASK_TABLE,
-                    Key: {
-                        taskId: taskData.taskId.toString()
-                    }
-                };
-                
-                try {
-                    // Try to get the item first to determine the correct key structure
-                    const existingItem = await dynamodb.get(getParams).promise();
-                    console.log("Existing item:", existingItem);
-                    
-                    if (!existingItem.Item) {
-                        throw new Error(`Task with ID ${taskData.taskId} not found`);
-                    }
-                    
-                    // Determine the correct key structure based on the existing item
-                    const keyStructure = {
-                        taskId: taskData.taskId.toString()
-                    };
-                    
-                    // Table only has taskId as the HASH key, so we don't need userId in the key
-                    console.log("Using key structure:", JSON.stringify(keyStructure));
-                    
-                    const params = {
-                        TableName: process.env.DYNAMO_TASK_TABLE,
-                        Key: keyStructure,
-                        UpdateExpression: 'SET ' + updateExpressions.join(', '),
-                        ExpressionAttributeNames: expressionAttributeNames,
-                        ExpressionAttributeValues: expressionAttributeValues,
-                        ReturnValues: 'ALL_NEW'
-                    };
-                    
-                    const dynamoResult = await dynamodb.update(params).promise();
-                    console.log("DynamoDB update result:", dynamoResult);
-                } catch (err) {
-                    console.error("Error getting or updating item:", err);
-                    throw err;
-                }
-            }
-            
-            // Update MySQL if status needs to be updated
-            if (taskData.status) {
-                const conn = await mysql.createConnection({
-                    host: process.env.DB_HOST,
-                    user: process.env.DB_USER,
-                    password: process.env.DB_PASSWORD,
-                    database: process.env.DB_NAME,
+            // Send notification to SQS if userId is provided
+            if (taskData.userId) {
+                await sendNotification({
+                    taskId: taskData.taskId,
+                    userId: taskData.userId,
+                    type: 'TASK_UPDATED',
+                    message: `Task ${taskData.taskId} has been updated`,
+                    updatedFields: Object.keys(updateFields),
+                    updatedTask
                 });
-                
-                const [result] = await conn.execute(
-                    "UPDATE TaskUser SET status = ?, updatedAt = ? WHERE taskId = ?",
-                    [taskData.status, timestamp, taskData.taskId]
-                );
-                
-                console.log("MySQL update result:", result);
-                await conn.end();
             }
             
             results.successful.push({
@@ -310,34 +178,86 @@ async function handleSQSEvent(event) {
 }
 
 /**
- * Helper functions for API responses
+ * Updates a task in DynamoDB
+ * @param {string} taskId - The ID of the task to update
+ * @param {object} updateFields - The fields to update
+ * @returns {Promise<object>} - The updated task
  */
-function formatSuccess(data, statusCode = 200) {
-    return {
-        statusCode,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Credentials': true
-        },
-        body: JSON.stringify({
-            success: true,
-            data
-        })
+async function updateTaskInDynamoDB(taskId, updateFields) {
+    const timestamp = new Date().toISOString();
+    const updateExpressions = [];
+    const expressionAttributeNames = {};
+    const expressionAttributeValues = {};
+    
+    // Build update expression for DynamoDB
+    Object.entries(updateFields).forEach(([key, value]) => {
+        updateExpressions.push(`#${key} = :${key}`);
+        expressionAttributeNames[`#${key}`] = key;
+        expressionAttributeValues[`:${key}`] = value;
+    });
+    
+    // Add updatedAt timestamp
+    updateExpressions.push('#updatedAt = :updatedAt');
+    expressionAttributeNames['#updatedAt'] = 'updatedAt';
+    expressionAttributeValues[':updatedAt'] = timestamp;
+    
+    // First, get the task to check its existence
+    const getParams = {
+        TableName: process.env.DYNAMO_TASK_TABLE,
+        Key: {
+            taskId: taskId
+        }
     };
+    
+    const existingItem = await dynamodb.get(getParams).promise();
+    console.log("Existing item:", existingItem);
+    
+    if (!existingItem.Item) {
+        throw new Error(`Task with ID ${taskId} not found`);
+    }
+    
+    // Update DynamoDB
+    const params = {
+        TableName: process.env.DYNAMO_TASK_TABLE,
+        Key: {
+            taskId: taskId
+        },
+        UpdateExpression: 'SET ' + updateExpressions.join(', '),
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: 'ALL_NEW'
+    };
+    
+    const dynamoResult = await dynamodb.update(params).promise();
+    console.log("DynamoDB update result:", dynamoResult);
+    
+    return dynamoResult.Attributes;
 }
 
-function formatError(message, statusCode = 400) {
-    return {
-        statusCode,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Credentials': true
-        },
-        body: JSON.stringify({
-            success: false,
-            error: message
-        })
-    };
+/**
+ * Sends a notification to the SQS queue
+ * @param {object} notificationData - The notification data to send
+ * @returns {Promise<object>} - The SQS response
+ */
+async function sendNotification(notificationData) {
+    try {
+        const params = {
+            QueueUrl: process.env.NOTIFICATION_QUEUE_URL,
+            MessageBody: JSON.stringify(notificationData),
+            MessageAttributes: {
+                Type: {
+                    DataType: 'String',
+                    StringValue: notificationData.type || 'TASK_UPDATED'
+                }
+            }
+        };
+        
+        const result = await sqs.sendMessage(params).promise();
+        console.log("Message sent to notification queue:", result);
+        return result;
+    } catch (err) {
+        console.error("Failed to send notification:", err);
+        // Don't throw the error as this is a non-critical operation
+        return null;
+    }
 } 
