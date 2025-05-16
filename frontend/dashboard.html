@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; color: #333; }
+        header { background-color: #007bff; color: white; padding: 10px 20px; text-align: center; }
+        nav { float: right; }
+        nav button { background-color: #dc3545; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 5px; }
+        nav button:hover { background-color: #c82333; }
+        .container { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); margin-top: 20px; }
+        h1, h2 { color: #333; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>User Dashboard</h1>
+        <nav>
+            <button id="logoutButton">Logout</button>
+        </nav>
+    </header>
+
+    <div class="container">
+        <h2>Welcome!</h2>
+        <p>This is your dashboard. Your tasks will be displayed here.</p>
+        <!-- Task display and creation will be added here -->
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const authToken = localStorage.getItem('authToken');
+            const userInfo = JSON.parse(localStorage.getItem('userInfo'));
+
+            function decodeJwt(token) {
+                try {
+                    const base64Url = token.split('.')[1];
+                    if (!base64Url) return null; // Invalid token structure
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                    return JSON.parse(jsonPayload);
+                } catch (e) {
+                    console.error("Failed to decode JWT:", e);
+                    return null; 
+                }
+            }
+
+            function isTokenExpired(token) {
+                if (!token) return true;
+                const decoded = decodeJwt(token);
+                if (!decoded || typeof decoded.exp === 'undefined') {
+                    console.warn("JWT does not have an expiration (exp) claim or is malformed.");
+                    return true; // Treat as expired if no exp claim or malformed
+                }
+                const currentTime = Math.floor(Date.now() / 1000);
+                return decoded.exp < currentTime;
+            }
+
+            if (!authToken || isTokenExpired(authToken)) {
+                let errorMessage = 'Authentication Error on Dashboard: ';
+                if (!authToken) {
+                    errorMessage += 'No authentication token found in local storage.';
+                    console.log(errorMessage);
+                } else {
+                    // Attempt to decode for more specific error, even if isTokenExpired was true
+                    const decoded = decodeJwt(authToken);
+                    if (!decoded) {
+                        errorMessage += 'Authentication token is malformed or could not be decoded.';
+                    } else if (typeof decoded.exp === 'undefined') {
+                        errorMessage += 'Authentication token is missing an expiration claim (exp).';
+                    } else if (decoded.exp < Math.floor(Date.now() / 1000)) {
+                        errorMessage += 'Authentication token has expired.';
+                    } else {
+                        errorMessage += 'Authentication token is invalid for an unknown reason.'; // Fallback
+                    }
+                    console.log(errorMessage);
+                }
+
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.innerHTML = ''; // Clear existing content
+                    const errorDisplay = document.createElement('p');
+                    errorDisplay.style.color = 'red';
+                    errorDisplay.style.fontWeight = 'bold';
+                    errorDisplay.textContent = errorMessage;
+                    container.appendChild(errorDisplay);
+
+                    const instructionText = document.createElement('p');
+                    instructionText.textContent = 'Please check the console for more details. You might need to sign in again.';
+                    container.appendChild(instructionText);
+
+                    const signInLink = document.createElement('a');
+                    signInLink.href = 'signIn.html';
+                    signInLink.textContent = 'Go to Sign In Page';
+                    signInLink.style.display = 'block';
+                    signInLink.style.marginTop = '10px';
+                    container.appendChild(signInLink);
+                }
+
+                // DON'T clear localStorage here - it was causing the redirect loop
+                // localStorage.clear(); // <-- Removed this line
+                
+                return;
+            }
+
+            console.log('Auth token is valid, proceeding to dashboard.');
+
+            if (userInfo && userInfo.username) {
+                document.querySelector('.container h2').textContent = 'Welcome, ' + userInfo.username + '!';
+            }
+
+            // Logout functionality
+            document.getElementById('logoutButton').addEventListener('click', function() {
+                localStorage.clear(); // Clear all stored tokens and user info
+                window.location.replace('signIn.html');
+            });
+
+            // Further functionality (fetching tasks, creating tasks) will be added here
+        });
+    </script>
+</body>
+</html>
