@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <header>
+        <div class="logo">Task<span>Manager</span></div>
+    </header>
+
+    <main>
+        <div class="auth-container">
+            <h2 class="auth-title">Create Account</h2>
+            <div class="card">
+                <form id="signUpForm">
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email" required placeholder="Enter your email">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required placeholder="Choose a password">
+                    </div>
+
+                    <div class="button-group">
+                        <button type="submit">Sign Up</button>
+                    </div>
+                </form>
+
+                <!-- Hidden confirmation section -->
+                <div id="confirmationSection" style="display: none; margin-top: 20px;">
+                    <div class="form-group">
+                        <label for="confirmationCode">Enter Verification Code</label>
+                        <input type="text" id="confirmationCode" name="confirmationCode"
+                            placeholder="Enter the code sent to your email">
+                    </div>
+                    <div class="button-group">
+                        <button id="confirmButton">Confirm</button>
+                    </div>
+                </div>
+
+                <p class="auth-footer">Already have an account? <a href="login.html">Login</a></p>
+            </div>
+        </div>
+    </main>
+    <script>
+        let userEmail = ''; // Store email for confirmation
+
+        document.getElementById('signUpForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            // Check if email and password are not empty
+            if (!email || !password) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            // Store email for confirmation
+            userEmail = email;
+
+            // Make the POST request to the signup API
+            fetch('https://1wo0qdba0g.execute-api.eu-north-1.amazonaws.com/dev/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, password })
+            })
+                .then(res => {
+                    if (res.ok) {
+                        // Show the confirmation section
+                        document.getElementById('confirmationSection').style.display = 'block';
+                        document.getElementById('signUpForm').style.display = 'none';
+                    } else {
+                        return res.json().then(data => {
+                            throw new Error(data.message || 'Failed to sign up');
+                        });
+                    }
+                })
+                .catch(err => {
+                    alert('Error: ' + err.message);
+                });
+        });
+
+        // Handle confirmation button click
+        document.getElementById('confirmButton').addEventListener('click', function () {
+            const code = document.getElementById('confirmationCode').value.trim();
+
+            if (!code) {
+                alert('Please enter the verification code');
+                return;
+            }
+
+            // Make the confirmation request
+            fetch('https://1wo0qdba0g.execute-api.eu-north-1.amazonaws.com/dev/confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: userEmail,
+                    code: code
+                })
+            })
+                .then(res => {
+                    if (res.ok) {
+                        // Redirect to login page after successful confirmation
+                        window.location.href = 'login.html';
+                    } else {
+                        return res.json().then(data => {
+                            throw new Error(data.message || 'Failed to confirm user');
+                        });
+                    }
+                })
+                .catch(err => {
+                    alert('Error: ' + err.message);
+                });
+        });
+    </script>
+</body>
+
+</html>
