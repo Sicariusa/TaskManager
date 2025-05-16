@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - Task Manager</title>
+</head>
+<body>
+    <h1>Sign In</h1>
+    
+    <div class="auth-container">
+        <form id="signinForm">
+            <div>
+                <label for="username">Username*</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div>
+                <label for="email">Email*</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div>
+                <label for="password">Password*</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <button type="submit">Sign In</button>
+            <div id="message"></div>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('signinForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const messageEl = document.getElementById('message');
+            
+            if (!username || !email || !password) {
+                messageEl.textContent = 'Please fill all required fields.';
+                return;
+            }
+
+            messageEl.textContent = 'Processing...';
+            
+            // Using the direct fetch approach like your friend's code
+            fetch('https://ta31lz1pjk.execute-api.eu-north-1.amazonaws.com/dev/signIn', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username,
+                    email,
+                    password
+                }),
+                mode: 'cors'
+            })
+            .then(response => {
+                // Get the response text first
+                return response.text().then(text => {
+                    // Try to parse as JSON if possible
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        // If not JSON, just use the text as is
+                        data = { message: text };
+                    }
+                    return { 
+                        ok: response.ok, 
+                        status: response.status, 
+                        data,
+                        originalText: text  // Keep the original text for debugging
+                    };
+                });
+            })
+            .then(result => {
+                if (result.ok) {
+                    messageEl.textContent = 'Registration successful! You can now login.';
+                    console.log('Success response:', result.data);
+                    // Optionally redirect after success
+                    // window.location.href = 'login.html';
+                } else {
+                    console.log('Error response:', result);
+                    
+                    // Display the exact error message from the backend
+                    if (result.data && result.data.message) {
+                        messageEl.textContent = result.data.message;
+                    } else if (result.originalText) {
+                        // Try to extract error message from the original text
+                        try {
+                            // Check if it's a stringified JSON
+                            const parsedError = JSON.parse(result.originalText);
+                            if (parsedError.message) {
+                                messageEl.textContent = parsedError.message;
+                            } else {
+                                messageEl.textContent = result.originalText;
+                            }
+                        } catch (e) {
+                            // If not JSON, just show the original text
+                            messageEl.textContent = result.originalText;
+                        }
+                    } else {
+                        messageEl.textContent = 'Registration failed. Please try again.';
+                    }
+                }
+            })
+            .catch(err => {
+                messageEl.textContent = 'An error occurred. Please try again later.';
+                console.error('signin error:', err);
+                
+                // Alternative approach if the API is having CORS issues
+                if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
+                    console.log('Trying alternative approach...');
+                    // Optionally implement a form-based fallback here
+                }
+            });
+        });
+    </script>
+</body>
+</html> 
