@@ -21,10 +21,9 @@
         .task-description { margin-bottom: 8px; color: #555; }
         .task-actions { display: flex; gap: 6px; }
         .task-actions button { padding: 4px 8px; font-size: 14px; border: none; border-radius: 3px; cursor: pointer; }
-        .edit-btn { background: #ffc107; color: #333; }
-        .delete-btn { background: #dc3545; color: #fff; }
-        .save-btn { background: #28a745; color: #fff; }
-        .cancel-btn { background: #6c757d; color: #fff; }
+        .edit-btn, .delete-btn, .save-btn, .cancel-btn, .attach-btn { background: #007bff; color: #fff; }
+        .edit-btn:hover, .delete-btn:hover, .save-btn:hover, .cancel-btn:hover, .attach-btn:hover { background: #0056b3; }
+        .view-file-btn { background: #6610f2; color: #fff; }
         .editing { border: 2px solid #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
         #message { text-align: center; margin-bottom: 12px; min-height: 24px; }
         .hidden { display: none; }
@@ -41,10 +40,6 @@
             <textarea id="newTaskDescription" placeholder="Enter task description (required)" required></textarea>
             <button type="submit">Add Task</button>
         </form>        <ul class="task-list" id="taskList"></ul>
-        
-        <!-- Debug panel for developers -->
-        <button id="debugBtn" onclick="toggleDebugPanel()" style="margin-top:10px;width:100%;background:#333;color:#fff;">Show Raw API Data</button>
-        <div id="debugPanel" class="hidden" style="margin-top:10px;padding:10px;background:#f0f0f0;border-radius:4px;overflow:auto;max-height:300px;font-family:monospace;font-size:12px;"></div>
         
         <button onclick="logout()" style="margin-top:20px;width:100%;background:#888;color:#fff;">Logout</button>
     </div>
@@ -188,6 +183,28 @@
             delBtn.onclick = () => deleteTask(li.dataset.id);
             actions.appendChild(delBtn);
             
+            // Add attachment button or view file button
+            if (task.file_key) {
+                // If task has an attachment, add view file button
+                // const viewFileBtn = document.createElement('button');
+                // viewFileBtn.className = 'view-file-btn';
+                // viewFileBtn.textContent = 'View File';
+                // viewFileBtn.onclick = () => {
+                //     window.location.href = `file-details.html?taskId=${taskId}`;
+                // };
+                // actions.appendChild(viewFileBtn);
+                // Instead, just show attachment info below
+            } else {
+                // If task doesn't have an attachment, add attach button
+                const attachBtn = document.createElement('button');
+                attachBtn.className = 'attach-btn';
+                attachBtn.textContent = 'Attach File';
+                attachBtn.onclick = () => {
+                    window.location.href = `attachment.html?taskId=${taskId}`;
+                };
+                actions.appendChild(attachBtn);
+            }
+            
             taskHeader.appendChild(actions);
             li.appendChild(taskHeader);
             
@@ -210,6 +227,23 @@
                 dateDiv.style.marginTop = '4px';
                 dateDiv.textContent = `Created: ${new Date(dateStr).toLocaleString()}`;
                 li.appendChild(dateDiv);
+            }
+            
+            // Add file information if exists
+            if (task.file_key) {
+                const fileDiv = document.createElement('div');
+                fileDiv.className = 'task-attachment';
+                fileDiv.style.fontSize = '12px';
+                fileDiv.style.color = '#28a745';
+                fileDiv.style.marginTop = '4px';
+                
+                // Extract filename from file_key
+                const filename = task.file_key.split('/').pop();
+                // Remove any UUID prefix
+                const displayName = filename.replace(/^[0-9a-f-]+-/, '');
+                
+                fileDiv.innerHTML = `<strong>📎 Attachment:</strong> ${displayName}`;
+                li.appendChild(fileDiv);
             }
             
             list.appendChild(li);
@@ -391,62 +425,8 @@
         window.location.replace('signIn.html');
     }
     
-    // Debug panel toggle function
-    function toggleDebugPanel() {
-        const debugPanel = document.getElementById('debugPanel');
-        const debugBtn = document.getElementById('debugBtn');
-        
-        if (debugPanel.classList.contains('hidden')) {
-            // Show debug panel with raw data
-            debugPanel.classList.remove('hidden');
-            debugBtn.textContent = 'Hide Raw API Data';
-            
-            // Fetch both raw create and get task responses
-            Promise.all([
-                fetch(`${API_BASE}/getTasks`, { headers: { 'Authorization': accessToken } }).then(res => res.json()),
-                fetch(`${API_BASE}/createTask`, { 
-                    method: 'OPTIONS',
-                    headers: { 'Authorization': accessToken }
-                }).catch(e => ({ message: "OPTIONS request to inspect API configuration" }))
-            ])
-            .then(([tasksData, createInfo]) => {
-                const tableInfo = {
-                    "API Endpoint": API_BASE,
-                    "Auth Token Present": accessToken ? "Yes" : "No",
-                    "Tasks Response": tasksData,
-                    "Environment": process.env || "Not available in client"
-                };
-                
-                debugPanel.innerHTML = `<pre>${JSON.stringify(tableInfo, null, 2)}</pre>`;
-            });
-        } else {
-            // Hide debug panel
-            debugPanel.classList.add('hidden');
-            debugBtn.textContent = 'Show Raw API Data';
-        }
-    }    // Add refresh button to header
-    function addRefreshButton() {
-        const headerContainer = document.querySelector('.container h2');
-        if (headerContainer) {
-            const refreshBtn = document.createElement('button');
-            refreshBtn.id = 'refreshBtn';
-            refreshBtn.innerHTML = '🔄 Refresh';
-            refreshBtn.style.fontSize = '14px';
-            refreshBtn.style.padding = '5px 10px';
-            refreshBtn.style.marginLeft = '10px';
-            refreshBtn.style.background = '#007bff';
-            refreshBtn.style.color = '#fff';
-            refreshBtn.style.border = 'none';
-            refreshBtn.style.borderRadius = '4px';
-            refreshBtn.style.cursor = 'pointer';
-            refreshBtn.onclick = fetchTasks;
-            headerContainer.appendChild(refreshBtn);
-        }
-    }
-    
     // Initial load only - no automatic polling
     fetchTasks();
-    addRefreshButton();
     </script>
 </body>
 </html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Attachment</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; }
+        .container { max-width: 800px; margin: 40px auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.08); }
+        h2 { text-align: center; }
+        .file-upload { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+        .file-input { display: flex; flex-direction: column; gap: 8px; }
+        .file-input label { font-weight: bold; }
+        .file-input input[type="file"] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .file-upload button { padding: 10px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .file-upload button:hover { background: #0056b3; }
+        .file-upload button:disabled { background: #ccc; cursor: not-allowed; }
+        #message { text-align: center; margin-bottom: 12px; min-height: 24px; }
+        .file-details { background: #f9f9f9; padding: 16px; border-radius: 4px; margin-bottom: 24px; display: none; }
+        .action-buttons { display: flex; gap: 12px; justify-content: center; }
+        .action-buttons button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .back-btn { background: #6c757d; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Task Attachment</h2>
+        <div id="message"></div>
+        
+        <div class="file-details" id="fileDetails">
+            <h3>Current Attachment</h3>
+            <p id="fileInfo"></p>
+            <p><a href="#" id="downloadLink" target="_blank">View/Download File</a></p>
+        </div>
+        
+        <div class="file-upload" id="uploadForm">
+            <div class="file-input">
+                <label for="fileInput">Select File to Upload:</label>
+                <input type="file" id="fileInput" required />
+            </div>
+            <button type="button" id="uploadBtn">Upload File</button>
+        </div>
+        
+        <div class="action-buttons">
+            <button class="back-btn" onclick="location.href='dashboard.html'">Back to Dashboard</button>
+        </div>
+    </div>
+
+    <script src="js/viewFile.js"></script>
+    <script>
+        const API_BASE = 'https://ta31lz1pjk.execute-api.eu-north-1.amazonaws.com/dev';
+        const accessToken = localStorage.getItem('accessToken');
+        const messageEl = document.getElementById('message');
+        const taskId = new URLSearchParams(window.location.search).get('taskId');
+        const fileDetails = localStorage.getItem(`file_${taskId}`);
+        
+        // Redirect to login if no token is found
+        if (!accessToken) {
+            window.location.replace('signIn.html');
+        }
+        
+        // Redirect to dashboard if no taskId
+        if (!taskId) {
+            window.location.replace('dashboard.html');
+        }
+        
+        // Show message function
+        function showMessage(msg, type = 'info') {
+            messageEl.textContent = msg;
+            messageEl.style.color = type === 'error' ? '#dc3545' : (type === 'success' ? '#28a745' : '#333');
+        }
+        
+        // Display file details if available
+        if (fileDetails) {
+            try {
+                const details = JSON.parse(fileDetails);
+                document.getElementById('fileDetails').style.display = 'block';
+                document.getElementById('fileInfo').textContent = `Filename: ${details.filename}`;
+                
+                // If we have a download URL
+                if (details.downloadUrl) {
+                    document.getElementById('downloadLink').href = details.downloadUrl;
+                } else {
+                    document.getElementById('downloadLink').style.display = 'none';
+                }
+            } catch (err) {
+                console.error("Error parsing file details:", err);
+            }
+        }
+        
+        // Upload file handler
+        document.getElementById('uploadBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                return showMessage('Please select a file first', 'error');
+            }
+            
+            // Disable button during upload
+            this.disabled = true;
+            this.textContent = 'Uploading...';
+            showMessage('Preparing upload...');
+            
+            // Step 1: Get signed URL
+            fetch(`${API_BASE}/tasks/${taskId}/upload`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': accessToken
+                },
+                body: JSON.stringify({ 
+                    filename: file.name,
+                    taskId: taskId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to get upload URL');
+                }
+                
+                showMessage('Uploading file...');
+                console.log('Received signed URL:', data.data.signedUrl);
+                
+                // Step 2: Upload to S3 with signed URL
+                return fetch(data.data.signedUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': file.type || 'application/octet-stream'
+                    },
+                    body: file
+                }).then(() => {
+                    // Return the data from the first request to use later
+                    return data.data;
+                });
+            })
+            .then(uploadData => {
+                showMessage('File uploaded successfully!', 'success');
+                
+                // Redirect to dashboard after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html';
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Upload error:', err);
+                showMessage(err.message || 'Failed to upload file', 'error');
+                
+                // Re-enable button
+                document.getElementById('uploadBtn').disabled = false;
+                document.getElementById('uploadBtn').textContent = 'Upload File';
+            });
+        });
+    </script>
+</body>
+</html> 
