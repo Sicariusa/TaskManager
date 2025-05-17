@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; }
+        .container { max-width: 800px; margin: 40px auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.08); }
+        h2 { text-align: center; }
+        #taskForm { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+        #taskForm .input-row { display: flex; gap: 8px; }
+        #taskForm input, #taskForm button, #taskForm textarea { padding: 8px; font-size: 16px; }
+        #taskForm input, #taskForm textarea { flex: 1; border: 1px solid #ccc; border-radius: 4px; }
+        #taskForm textarea { resize: vertical; min-height: 80px; }
+        #taskForm button { background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 8px; }
+        #taskForm button:hover { background: #0056b3; }
+        .task-list { list-style: none; padding: 0; }
+        .task-item { display: flex; flex-direction: column; background: #f9f9f9; margin-bottom: 12px; padding: 12px; border-radius: 4px; }
+        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .task-title { font-weight: bold; margin-right: auto; }
+        .task-description { margin-bottom: 8px; color: #555; }
+        .task-actions { display: flex; gap: 6px; }
+        .task-actions button { padding: 4px 8px; font-size: 14px; border: none; border-radius: 3px; cursor: pointer; }
+        .edit-btn { background: #ffc107; color: #333; }
+        .delete-btn { background: #dc3545; color: #fff; }
+        .save-btn { background: #28a745; color: #fff; }
+        .cancel-btn { background: #6c757d; color: #fff; }
+        .editing { border: 2px solid #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.5); }
+        #message { text-align: center; margin-bottom: 12px; min-height: 24px; }
+        .hidden { display: none; }
+        @media (max-width: 700px) { .container { max-width: 98vw; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Task Dashboard</h2>
+        <div id="message"></div>        <form id="taskForm">
+            <div class="input-row">
+                <input type="text" id="newTaskTitle" placeholder="Enter task title" required />
+            </div>
+            <textarea id="newTaskDescription" placeholder="Enter task description (required)" required></textarea>
+            <button type="submit">Add Task</button>
+        </form>        <ul class="task-list" id="taskList"></ul>
+        
+        <!-- Debug panel for developers -->
+        <button id="debugBtn" onclick="toggleDebugPanel()" style="margin-top:10px;width:100%;background:#333;color:#fff;">Show Raw API Data</button>
+        <div id="debugPanel" class="hidden" style="margin-top:10px;padding:10px;background:#f0f0f0;border-radius:4px;overflow:auto;max-height:300px;font-family:monospace;font-size:12px;"></div>
+        
+        <button onclick="logout()" style="margin-top:20px;width:100%;background:#888;color:#fff;">Logout</button>
+    </div>
+    <script>    const API_BASE = 'https://ta31lz1pjk.execute-api.eu-north-1.amazonaws.com/dev';
+    // Get the accessToken - this will include "Bearer " prefix if needed by the API
+    const accessToken = localStorage.getItem('accessToken');
+    const messageEl = document.getElementById('message');
+    
+    // Redirect to login if no token is found
+    if (!accessToken) {
+        window.location.replace('signIn.html');
+    }
+    
+    // For debugging purposes
+    console.log("Using API Base:", API_BASE);
+
+    function showMessage(msg, type = 'info') {
+        messageEl.textContent = msg;
+        messageEl.style.color = type === 'error' ? '#dc3545' : (type === 'success' ? '#28a745' : '#333');
+    }    function fetchTasks() {
+        // Don't refresh if user is currently editing a task
+        if (window.currentlyEditing) {
+            console.log("Task fetch skipped - currently editing");
+            return;
+        }
+        
+        // Update refresh button if it exists
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.innerHTML = '⏳ Loading...';
+            refreshBtn.disabled = true;
+        }
+        
+        showMessage('Loading tasks...');
+        console.log("Fetching tasks...");
+        
+        fetch(`${API_BASE}/getTasks`, {
+            headers: { 'Authorization': accessToken }
+        })
+        .then(res => {
+            console.log("Task fetch response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Task fetch data:", data);
+            showMessage('');
+            
+            // Reset refresh button
+            if (refreshBtn) {
+                refreshBtn.innerHTML = '🔄 Refresh';
+                refreshBtn.disabled = false;
+            }
+              
+            // Check if data itself is an array (some APIs directly return array)
+            if (Array.isArray(data)) {
+                renderTasks(data);
+            }
+            // The getTasks Lambda returns {success: true, data: {tasks: [...], count: n}}
+            else if (data.success && data.data && data.data.tasks && Array.isArray(data.data.tasks)) {
+                renderTasks(data.data.tasks);
+            }
+            // Check for common nested data structures
+            else if (data.success && Array.isArray(data.data)) {
+                renderTasks(data.data);
+            }
+            // Check for other common response formats
+            else if (data.tasks && Array.isArray(data.tasks)) {
+                renderTasks(data.tasks);
+            }
+            else if (data.items && Array.isArray(data.items)) {
+                renderTasks(data.items);
+            }
+            else {
+                console.log("No recognizable task array in response", data);
+                renderTasks([]);
+                showMessage(data.error || 'No tasks found or error fetching tasks.', 'error');
+            }
+        })
+        .catch(err => {
+            console.error("Error fetching tasks:", err);
+            renderTasks([]);
+            showMessage('Failed to fetch tasks.', 'error');
+            
+            // Reset refresh button on error
+            if (refreshBtn) {
+                refreshBtn.innerHTML = '🔄 Refresh';
+                refreshBtn.disabled = false;
+            }
+        });
+    }    function renderTasks(tasks) {
+        const list = document.getElementById('taskList');
+        list.innerHTML = '';
+        console.log("Rendering tasks:", tasks);
+        
+        if (!tasks || !tasks.length) {
+            list.innerHTML = '<li style="text-align:center;color:#888;">No tasks yet.</li>';
+            return;
+        }
+        
+        tasks.forEach(task => {
+            console.log("Processing task:", task);
+            const li = document.createElement('li');
+            li.className = 'task-item';
+            
+            // Extract taskId from various possible locations
+            const taskId = task.taskId || task.id || task._id || task.task_id;
+            if (!taskId) {
+                console.warn("Task without ID found:", task);
+                return;
+            }
+            
+            li.dataset.id = taskId;
+              // Debug
+            console.log("Task data for rendering:", task);
+            
+            // Create task header (title + actions)
+            const taskHeader = document.createElement('div');
+            taskHeader.className = 'task-header';
+            
+            // Handle title display
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'task-title';
+            titleSpan.textContent = task.title || task.name || 'Untitled';
+            taskHeader.appendChild(titleSpan);
+            
+            // Action buttons container
+            const actions = document.createElement('div');
+            actions.className = 'task-actions';
+            
+            // Edit button
+            const editBtn = document.createElement('button');
+            editBtn.className = 'edit-btn';
+            editBtn.textContent = 'Edit';
+            editBtn.onclick = () => startEditTask(li, task);
+            actions.appendChild(editBtn);
+            
+            // Delete button
+            const delBtn = document.createElement('button');
+            delBtn.className = 'delete-btn';
+            delBtn.textContent = 'Delete';
+            delBtn.onclick = () => deleteTask(li.dataset.id);
+            actions.appendChild(delBtn);
+            
+            taskHeader.appendChild(actions);
+            li.appendChild(taskHeader);
+            
+            // Add description if exists - handle different description field names
+            const description = task.description || task.desc || task.content || '';
+            if (description) {
+                const descDiv = document.createElement('div');
+                descDiv.className = 'task-description';
+                descDiv.textContent = description;
+                li.appendChild(descDiv);
+            }
+            
+            // Add creation date if exists
+            if (task.createdAt || task.timestamp || task.created) {
+                const dateStr = task.createdAt || task.timestamp || task.created;
+                const dateDiv = document.createElement('div');
+                dateDiv.className = 'task-date';
+                dateDiv.style.fontSize = '12px';
+                dateDiv.style.color = '#777';
+                dateDiv.style.marginTop = '4px';
+                dateDiv.textContent = `Created: ${new Date(dateStr).toLocaleString()}`;
+                li.appendChild(dateDiv);
+            }
+            
+            list.appendChild(li);
+        });
+    }    document.getElementById('taskForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const title = document.getElementById('newTaskTitle').value.trim();
+        const description = document.getElementById('newTaskDescription').value.trim();
+        
+        if (!title) return showMessage('Task title required.', 'error');
+        if (!description) return showMessage('Task description required.', 'error');
+        
+        // Set editing flag while creating a task to prevent auto-refresh
+        window.currentlyEditing = true;
+        
+        showMessage('Adding task...');
+        console.log("Creating task:", { title, description });
+        
+        fetch(`${API_BASE}/createTask`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': accessToken 
+            },
+            body: JSON.stringify({ title, description })
+        })
+        .then(res => {
+            console.log("Task creation response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Task creation response:", data);
+              if (data.success) {
+                showMessage('Task added!', 'success');
+                document.getElementById('newTaskTitle').value = '';
+                document.getElementById('newTaskDescription').value = '';
+                
+                // Clear editing flag and fetch tasks with a small delay
+                window.currentlyEditing = false;
+                setTimeout(() => {
+                    fetchTasks();
+                }, 1000);
+            } else {
+                window.currentlyEditing = false; // Clear editing flag even on error
+                showMessage(data.error || 'Failed to add task.', 'error');
+            }
+        })        .catch(err => {
+            console.error("Error creating task:", err);
+            window.currentlyEditing = false; // Clear editing flag on error
+            showMessage('Failed to add task.', 'error');
+        });
+    });function startEditTask(li, task) {
+        // Mark this task as being edited to prevent refresh interference
+        window.currentlyEditing = true;
+        
+        // Add visual indicator that task is being edited
+        li.classList.add('editing');
+        li.innerHTML = '';
+        
+        // Create form for editing
+        const editForm = document.createElement('div');
+        editForm.style.width = '100%';
+        
+        // Title input
+        const titleInput = document.createElement('input');
+        titleInput.type = 'text';
+        titleInput.value = task.title || task.name || '';
+        titleInput.style.width = '100%';
+        titleInput.style.marginBottom = '8px';
+        editForm.appendChild(titleInput);
+        
+        // Description textarea
+        const descInput = document.createElement('textarea');
+        descInput.value = task.description || '';
+        descInput.style.width = '100%';
+        descInput.style.marginBottom = '8px';
+        descInput.placeholder = 'Description (required)';
+        descInput.style.minHeight = '60px';
+        editForm.appendChild(descInput);
+        
+        li.appendChild(editForm);
+        
+        // Action buttons
+        const actions = document.createElement('div');
+        actions.className = 'task-actions';
+        actions.style.justifyContent = 'flex-end';
+        
+        // Save button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'save-btn';
+        saveBtn.textContent = 'Save';        
+        saveBtn.onclick = () => {
+            const newTitle = titleInput.value.trim();
+            const newDesc = descInput.value.trim();
+            if (!newTitle) return showMessage('Title required.', 'error');
+            if (!newDesc) return showMessage('Description required.', 'error');
+            window.currentlyEditing = false; // Clear editing flag
+            updateTask(li.dataset.id, newTitle, newDesc);
+        };
+        actions.appendChild(saveBtn);
+        
+        // Cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'cancel-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = () => {
+            window.currentlyEditing = false; // Clear editing flag
+            fetchTasks();
+        };
+        actions.appendChild(cancelBtn);
+        
+        li.appendChild(actions);
+        
+        // Focus on title input
+        titleInput.focus();
+    }function updateTask(taskId, title, description) {
+        showMessage('Updating task...');
+        console.log("Updating task:", { taskId, title, description });
+        
+        fetch(`${API_BASE}/updateTask`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
+            body: JSON.stringify({ taskId, title, description })
+        })
+        .then(res => {
+            console.log("Task update response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Task update response:", data);
+            
+            if (data.success) {
+                showMessage('Task updated!', 'success');
+                // Use setTimeout to give the user a chance to see the success message
+                setTimeout(() => {
+                    fetchTasks();
+                }, 1000);
+            } else {
+                showMessage(data.error || 'Failed to update task.', 'error');
+            }
+        })
+        .catch(err => {
+            console.error("Error updating task:", err);
+            showMessage('Failed to update task.', 'error');
+        });
+    }function deleteTask(taskId) {
+        if (!confirm('Delete this task?')) return;
+        showMessage('Deleting task...');
+        console.log("Deleting task:", taskId);
+        
+        fetch(`${API_BASE}/deleteTask`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'Authorization': accessToken },
+            body: JSON.stringify({ taskId })
+        })
+        .then(res => {
+            console.log("Task delete response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Task delete response:", data);
+            
+            if (data.success) {
+                showMessage('Task deleted!', 'success');
+                // Use setTimeout to give the user a chance to see the success message
+                setTimeout(() => {
+                    fetchTasks();
+                }, 1000);
+            } else {
+                showMessage(data.error || 'Failed to delete task.', 'error');
+            }
+        })
+        .catch(err => {
+            console.error("Error deleting task:", err);
+            showMessage('Failed to delete task.', 'error');
+        });
+    }function logout() {
+        localStorage.clear();
+        window.location.replace('signIn.html');
+    }
+    
+    // Debug panel toggle function
+    function toggleDebugPanel() {
+        const debugPanel = document.getElementById('debugPanel');
+        const debugBtn = document.getElementById('debugBtn');
+        
+        if (debugPanel.classList.contains('hidden')) {
+            // Show debug panel with raw data
+            debugPanel.classList.remove('hidden');
+            debugBtn.textContent = 'Hide Raw API Data';
+            
+            // Fetch both raw create and get task responses
+            Promise.all([
+                fetch(`${API_BASE}/getTasks`, { headers: { 'Authorization': accessToken } }).then(res => res.json()),
+                fetch(`${API_BASE}/createTask`, { 
+                    method: 'OPTIONS',
+                    headers: { 'Authorization': accessToken }
+                }).catch(e => ({ message: "OPTIONS request to inspect API configuration" }))
+            ])
+            .then(([tasksData, createInfo]) => {
+                const tableInfo = {
+                    "API Endpoint": API_BASE,
+                    "Auth Token Present": accessToken ? "Yes" : "No",
+                    "Tasks Response": tasksData,
+                    "Environment": process.env || "Not available in client"
+                };
+                
+                debugPanel.innerHTML = `<pre>${JSON.stringify(tableInfo, null, 2)}</pre>`;
+            });
+        } else {
+            // Hide debug panel
+            debugPanel.classList.add('hidden');
+            debugBtn.textContent = 'Show Raw API Data';
+        }
+    }    // Add refresh button to header
+    function addRefreshButton() {
+        const headerContainer = document.querySelector('.container h2');
+        if (headerContainer) {
+            const refreshBtn = document.createElement('button');
+            refreshBtn.id = 'refreshBtn';
+            refreshBtn.innerHTML = '🔄 Refresh';
+            refreshBtn.style.fontSize = '14px';
+            refreshBtn.style.padding = '5px 10px';
+            refreshBtn.style.marginLeft = '10px';
+            refreshBtn.style.background = '#007bff';
+            refreshBtn.style.color = '#fff';
+            refreshBtn.style.border = 'none';
+            refreshBtn.style.borderRadius = '4px';
+            refreshBtn.style.cursor = 'pointer';
+            refreshBtn.onclick = fetchTasks;
+            headerContainer.appendChild(refreshBtn);
+        }
+    }
+    
+    // Initial load only - no automatic polling
+    fetchTasks();
+    addRefreshButton();
+    </script>
+</body>
+</html>

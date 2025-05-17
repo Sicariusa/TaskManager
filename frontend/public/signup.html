@@ -2,12 +2,85 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - Task Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .auth-container {
+            background: white;
+            padding: 30px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        form div {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0069d9;
+        }
+        #message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .links {
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
     <h1>Create Your Account</h1>
-    
+
     <div class="auth-container">
         <form id="signupForm">
             <div>
@@ -22,32 +95,30 @@
                 <label for="password">Password*</label>
                 <input type="password" id="password" name="password" required>
             </div>
-            <div>
-                <label for="name">Name*</label>
-                <input type="text" id="name" name="name" required>
-            </div>
             <button type="submit">Sign Up</button>
             <div id="message"></div>
         </form>
-    </div>
-
-    <script>
+        <div class="links">
+            <p>Already have an account? <a href="signIn.html">Sign In</a></p>
+        </div>
+    </div>    <script>
         document.getElementById('signupForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            
+
             const username = document.getElementById('username').value.trim();
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value.trim();
             const messageEl = document.getElementById('message');
-            
+
             if (!username || !email || !password) {
                 messageEl.textContent = 'Please fill all required fields.';
+                messageEl.className = 'error';
                 return;
             }
-
-            messageEl.textContent = 'Processing...';
             
-            // Using the direct fetch approach like your friend's code
+            messageEl.textContent = 'Processing...';
+            messageEl.className = '';
+            
             fetch('https://ta31lz1pjk.execute-api.eu-north-1.amazonaws.com/dev/signUp', {
                 method: 'POST',
                 headers: {
@@ -56,71 +127,50 @@
                 body: JSON.stringify({
                     username,
                     email,
-                    password
-                }),
-                mode: 'cors'
+                    password,
+                    name: username // Adding name parameter
+                })
             })
             .then(response => {
-                // Get the response text first
+                // Handle any response type
                 return response.text().then(text => {
-                    // Try to parse as JSON if possible
                     let data;
                     try {
+                        // Try to parse as JSON
                         data = JSON.parse(text);
                     } catch (e) {
-                        // If not JSON, just use the text as is
+                        // If not JSON, use as plain text
                         data = { message: text };
                     }
-                    return { 
-                        ok: response.ok, 
-                        status: response.status, 
-                        data,
-                        originalText: text  // Keep the original text for debugging
+                    return {
+                        ok: response.ok,
+                        status: response.status,
+                        data: data
                     };
                 });
             })
             .then(result => {
                 if (result.ok) {
-                    messageEl.textContent = 'Registration successful! You can now login.';
+                    messageEl.textContent = '✅ Registration successful! Redirecting to login...';
+                    messageEl.className = 'success';
                     console.log('Success response:', result.data);
-                    // Optionally redirect after success
-                    // window.location.href = 'login.html';
+                      // Redirect directly to dashboard after success
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 2000);
                 } else {
-                    console.log('Error response:', result);
-                    
-                    // Display the exact error message from the backend
-                    if (result.data && result.data.message) {
-                        messageEl.textContent = result.data.message;
-                    } else if (result.originalText) {
-                        // Try to extract error message from the original text
-                        try {
-                            // Check if it's a stringified JSON
-                            const parsedError = JSON.parse(result.originalText);
-                            if (parsedError.message) {
-                                messageEl.textContent = parsedError.message;
-                            } else {
-                                messageEl.textContent = result.originalText;
-                            }
-                        } catch (e) {
-                            // If not JSON, just show the original text
-                            messageEl.textContent = result.originalText;
-                        }
-                    } else {
-                        messageEl.textContent = 'Registration failed. Please try again.';
-                    }
+                    const errorMsg = (result.data && result.data.error) ? result.data.error : 'Registration failed. Try again.';
+                    messageEl.textContent = errorMsg;
+                    messageEl.className = 'error';
+                    console.error('Error response:', result.data);
                 }
             })
             .catch(err => {
-                messageEl.textContent = 'An error occurred. Please try again later.';
+                messageEl.textContent = 'An error occurred. Please try again.';
+                messageEl.className = 'error';
                 console.error('Signup error:', err);
-                
-                // Alternative approach if the API is having CORS issues
-                if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
-                    console.log('Trying alternative approach...');
-                    // Optionally implement a form-based fallback here
-                }
             });
         });
     </script>
 </body>
-</html> 
+</html>
